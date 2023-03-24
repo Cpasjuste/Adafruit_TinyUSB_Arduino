@@ -328,7 +328,8 @@ bool hidh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *de
   (void) rhport;
   (void) max_len;
 
-  TU_VERIFY(TUSB_CLASS_HID == desc_itf->bInterfaceClass);
+  // prevent x360 hid usage (TUSB_CLASS_HID == 255 (vendor))
+  //TU_VERIFY(TUSB_CLASS_HID == desc_itf->bInterfaceClass);
 
   TU_LOG2("[%u] HID opening Interface %u\r\n", dev_addr, desc_itf->bInterfaceNumber);
 
