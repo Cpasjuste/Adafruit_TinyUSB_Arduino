@@ -14,9 +14,11 @@
  * - Device run on native usb controller (controller0)
  * - Host run on bit-banging 2 GPIOs with the help of Pico-PIO-USB library (controller1)
  *
+ * Example will log CPU temperature periodically (ms,value) to USB thumbdrive
+ *
  * Requirements:
  * - [Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB) library
- * - 2 consecutive GPIOs: D+ is defined by HOST_PIN_DP (gpio20), D- = D+ +1 (gpio21)
+ * - 2 consecutive GPIOs: D+ is defined by PIN_PIO_USB_HOST_DP, D- = D+ +1
  * - Provide VBus (5v) and GND for peripheral
  * - CPU Speed must be either 120 or 240 Mhz. Selected via "Menu -> CPU Speed"
  */
@@ -31,11 +33,22 @@
 #include "Adafruit_TinyUSB.h"
 
 // Pin D+ for host, D- = D+ + 1
-#define HOST_PIN_DP       20
+#ifndef PIN_PIO_USB_HOST_DP
+#define PIN_PIO_USB_HOST_DP       20
+#endif
 
 // Pin for enabling Host VBUS. comment out if not used
-#define HOST_PIN_VBUS_EN        22
-#define HOST_PIN_VBUS_EN_STATE  1
+#ifndef PIN_PIO_USB_HOST_VBUSEN
+#define PIN_PIO_USB_HOST_VBUSEN        22
+#endif
+
+#ifndef PIN_PIO_USB_HOST_VBUSEN_STATE
+#define PIN_PIO_USB_HOST_VBUSEN_STATE  1
+#endif
+
+
+#define LOG_FILE        "cpu_temp.csv"
+#define LOG_INTERVAL    5000
 
 // USB Host object
 Adafruit_USBH_Host USBHost;
@@ -45,9 +58,10 @@ Adafruit_USBH_MSC_BlockDevice msc_block_dev;
 
 // file system object from SdFat
 FatVolume fatfs;
+File32 f_log;
 
 // if file system is successfully mounted on usb block device
-bool is_mounted = false;
+volatile bool is_mounted = false;
 
 //--------------------------------------------------------------------+
 // Setup and Loop on Core0
@@ -55,16 +69,40 @@ bool is_mounted = false;
 
 void setup()
 {
-  Serial1.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
 
   Serial.begin(115200);
   //while ( !Serial ) delay(10);   // wait for native usb
 
-  Serial.println("TinyUSB Dual Device Info Example");
+  Serial.println("TinyUSB Host MassStorage Data Logger Example");
 }
 
 void loop()
 {
+  if (!is_mounted) {
+    // nothing to do
+    delay(1000);
+    return;
+  }
+
+  // Turn on LED when start writing
+  digitalWrite(LED_BUILTIN, HIGH);
+
+  f_log = fatfs.open(LOG_FILE, O_WRITE | O_APPEND | O_CREAT);
+
+  if (!f_log) {
+    Serial.println("Cannot create file: " LOG_FILE);
+  }else {
+    float cpu_temp = analogReadTemp();
+    uint32_t ms = millis();
+
+    Serial.printf("%u,%.02f\r\n", millis(), cpu_temp);
+    f_log.printf("%u,%.02f\r\n", millis(), cpu_temp);
+
+    f_log.close();
+  }
+
+  delay(LOG_INTERVAL);
 }
 
 //--------------------------------------------------------------------+
@@ -81,20 +119,20 @@ void setup1() {
     while ( !Serial ) {
       delay(10);   // wait for native usb
     }
-    Serial.printf("Error: CPU Clock = %u, PIO USB require CPU clock must be multiple of 120 Mhz\r\n", cpu_hz);
-    Serial.printf("Change your CPU Clock to either 120 or 240 Mhz in Menu->CPU Speed \r\n", cpu_hz);
+    Serial.printf("Error: CPU Clock = %lu, PIO USB require CPU clock must be multiple of 120 Mhz\r\n", cpu_hz);
+    Serial.printf("Change your CPU Clock to either 120 or 240 Mhz in Menu->CPU Speed \r\n");
     while(1) {
       delay(1);
     }
   }
 
-#ifdef HOST_PIN_VBUS_EN
-  pinMode(HOST_PIN_VBUS_EN, OUTPUT);
-  digitalWrite(HOST_PIN_VBUS_EN, HOST_PIN_VBUS_EN_STATE);
+#ifdef PIN_PIO_USB_HOST_VBUSEN
+  pinMode(PIN_PIO_USB_HOST_VBUSEN, OUTPUT);
+  digitalWrite(PIN_PIO_USB_HOST_VBUSEN, PIN_PIO_USB_HOST_VBUSEN_STATE);
 #endif
 
   pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
-  pio_cfg.pin_dp = HOST_PIN_DP;
+  pio_cfg.pin_dp = PIN_PIO_USB_HOST_DP;
   USBHost.configure_pio_usb(1, &pio_cfg);
 
   // run host stack on controller (rhport) 1
@@ -106,6 +144,7 @@ void setup1() {
 void loop1()
 {
   USBHost.task();
+  Serial.flush();
 }
 
 //--------------------------------------------------------------------+
@@ -133,10 +172,14 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
   // For simplicity this example only support LUN 0
   msc_block_dev.setActiveLUN(0);
 
+  msc_block_dev.setWriteCompleteCallback(write_complete_callback);
+
   is_mounted = fatfs.begin(&msc_block_dev);
 
   if (is_mounted) {
     fatfs.ls(&Serial, LS_SIZE);
+  }else {
+    Serial.println("Failed to mount mass storage device. Make sure it is formatted as FAT");
   }
 }
 
@@ -151,5 +194,19 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 
   // end block device
   msc_block_dev.end();
+}
+
+
+bool write_complete_callback(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data)
+{
+  (void) dev_addr;
+  (void) cb_data;
+
+  // turn off LED after write is complete
+  // Note this only marks the usb transfer is complete, device can take longer to actual
+  // write data to physical flash
+  digitalWrite(LED_BUILTIN, LOW);
+
+  return true;
 }
 
