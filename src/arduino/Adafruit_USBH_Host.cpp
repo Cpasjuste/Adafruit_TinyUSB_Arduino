@@ -24,7 +24,7 @@
 
 #include "tusb_option.h"
 
-#if CFG_TUH_ENABLED
+#if 0
 
 #include "Adafruit_TinyUSB_API.h"
 #include "Adafruit_USBH_Host.h"
