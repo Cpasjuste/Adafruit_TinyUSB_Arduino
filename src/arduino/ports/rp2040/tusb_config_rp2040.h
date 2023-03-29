@@ -107,7 +107,7 @@ extern int serial1_printf(const char *__restrict __format, ...);
 //#define CFG_TUH_API_EDPT_XFER       1
 
 // Number of mass storage
-#define CFG_TUH_MSC 1
+#define CFG_TUH_MSC 0
 
 // Number of HIDs
 #define CFG_TUH_HID 4
