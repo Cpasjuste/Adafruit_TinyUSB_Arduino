@@ -14,9 +14,15 @@
  * - Device run on native usb controller (controller0)
  * - Host run on bit-banging 2 GPIOs with the help of Pico-PIO-USB library (controller1)
  *
+ * Example sketch receive keyboard report from host interface (from e.g consumer keyboard)
+ * and remap it to another key and send it via device interface (to PC). For simplicity,
+ * this example only toggle shift key to the report, effectively remap:
+ * - all character key <-> upper case
+ * - number <-> its symbol (with shift)
+ *
  * Requirements:
  * - [Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB) library
- * - 2 consecutive GPIOs: D+ is defined by HOST_PIN_DP (gpio20), D- = D+ +1 (gpio21)
+ * - 2 consecutive GPIOs: D+ is defined by PIN_PIO_USB_HOST_DP, D- = D+ +1
  * - Provide VBus (5v) and GND for peripheral
  * - CPU Speed must be either 120 or 240 Mhz. Selected via "Menu -> CPU Speed"
  */
@@ -26,11 +32,18 @@
 #include "Adafruit_TinyUSB.h"
 
 // Pin D+ for host, D- = D+ + 1
-#define HOST_PIN_DP       20
+#ifndef PIN_PIO_USB_HOST_DP
+#define PIN_PIO_USB_HOST_DP       20
+#endif
 
 // Pin for enabling Host VBUS. comment out if not used
-#define HOST_PIN_VBUS_EN        22
-#define HOST_PIN_VBUS_EN_STATE  1
+#ifndef PIN_PIO_USB_HOST_VBUSEN
+#define PIN_PIO_USB_HOST_VBUSEN        22
+#endif
+
+#ifndef PIN_PIO_USB_HOST_VBUSEN_STATE
+#define PIN_PIO_USB_HOST_VBUSEN_STATE  1
+#endif
 
 // Language ID: English
 #define LANGUAGE_ID 0x0409
@@ -38,22 +51,34 @@
 // USB Host object
 Adafruit_USBH_Host USBHost;
 
+// HID report descriptor using TinyUSB's template
+// Single Report (no ID) descriptor
+uint8_t const desc_hid_report[] =
+{
+  TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+// USB HID object. For ESP32 these values cannot be changed after this declaration
+// desc report, desc len, protocol, interval, use out endpoint
+Adafruit_USBD_HID usb_hid(desc_hid_report, sizeof(desc_hid_report), HID_ITF_PROTOCOL_KEYBOARD, 2, false);
+
 //--------------------------------------------------------------------+
 // Setup and Loop on Core0
 //--------------------------------------------------------------------+
 
 void setup()
 {
-  Serial1.begin(115200);
-
   Serial.begin(115200);
+  usb_hid.begin();
+
   //while ( !Serial ) delay(10);   // wait for native usb
 
-  Serial.println("TinyUSB Dual Device Info Example");
+  Serial.println("TinyUSB Host HID Remap Example");
 }
 
 void loop()
 {
+
 }
 
 //--------------------------------------------------------------------+
@@ -68,18 +93,18 @@ void setup1() {
   uint32_t cpu_hz = clock_get_hz(clk_sys);
   if ( cpu_hz != 120000000UL && cpu_hz != 240000000UL ) {
     while ( !Serial ) delay(10);   // wait for native usb
-    Serial.printf("Error: CPU Clock = %u, PIO USB require CPU clock must be multiple of 120 Mhz\r\n", cpu_hz);
-    Serial.printf("Change your CPU Clock to either 120 or 240 Mhz in Menu->CPU Speed \r\n", cpu_hz);
+    Serial.printf("Error: CPU Clock = %lu, PIO USB require CPU clock must be multiple of 120 Mhz\r\n", cpu_hz);
+    Serial.printf("Change your CPU Clock to either 120 or 240 Mhz in Menu->CPU Speed \r\n");
     while(1) delay(1);
   }
 
-#ifdef HOST_PIN_VBUS_EN
-  pinMode(HOST_PIN_VBUS_EN, OUTPUT);
-  digitalWrite(HOST_PIN_VBUS_EN, HOST_PIN_VBUS_EN_STATE);
+#ifdef PIN_PIO_USB_HOST_VBUSEN
+  pinMode(PIN_PIO_USB_HOST_VBUSEN, OUTPUT);
+  digitalWrite(PIN_PIO_USB_HOST_VBUSEN, PIN_PIO_USB_HOST_VBUSEN_STATE);
 #endif
 
   pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
-  pio_cfg.pin_dp = HOST_PIN_DP;
+  pio_cfg.pin_dp = PIN_PIO_USB_HOST_DP;
   USBHost.configure_pio_usb(1, &pio_cfg);
 
   // run host stack on controller (rhport) 1
@@ -106,8 +131,13 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
   Serial.printf("HID device address = %d, instance = %d is mounted\r\n", dev_addr, instance);
   Serial.printf("VID = %04x, PID = %04x\r\n", vid, pid);
-  if (!tuh_hid_receive_report(dev_addr, instance)) {
-    Serial.printf("Error: cannot request to receive report\r\n");
+
+  uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
+  if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
+    Serial.printf("HID Keyboard\r\n", vid, pid);
+    if (!tuh_hid_receive_report(dev_addr, instance)) {
+      Serial.printf("Error: cannot request to receive report\r\n");
+    }
   }
 }
 
@@ -116,13 +146,38 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
   Serial.printf("HID device address = %d, instance = %d is unmounted\r\n", dev_addr, instance);
 }
 
+void remap_key(hid_keyboard_report_t const* original_report, hid_keyboard_report_t* remapped_report)
+{
+  memcpy(remapped_report, original_report, sizeof(hid_keyboard_report_t));
+
+  // only remap if not empty report i.e key released
+  for(uint8_t i=0; i<6; i++) {
+    if (remapped_report->keycode[i] != 0) {
+      // Note: we ignore right shift here
+      remapped_report->modifier ^= KEYBOARD_MODIFIER_LEFTSHIFT;
+      break;
+    }
+  }
+}
+
 // Invoked when received report from device via interrupt endpoint
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len) {
-  Serial.printf("HIDreport : ");
-  for (uint16_t i = 0; i < len; i++) {
-    Serial.printf("0x%02X ", report[i]);
+  if ( len != 8 ) {
+    Serial.printf("report len = %u NOT 8, probably something wrong !!\r\n", len);
+  }else {
+    hid_keyboard_report_t remapped_report;
+    remap_key((hid_keyboard_report_t const*) report, &remapped_report);
+
+    // send remapped report to PC
+    // NOTE: for better performance you should save/queue remapped report instead of
+    // blocking wait for usb_hid ready here
+    while ( !usb_hid.ready() ) {
+      yield();
+    }
+
+    usb_hid.sendReport(0, &remapped_report, sizeof(hid_keyboard_report_t));
   }
-  Serial.println();
+
   // continue to request to receive report
   if (!tuh_hid_receive_report(dev_addr, instance)) {
     Serial.printf("Error: cannot request to receive report\r\n");

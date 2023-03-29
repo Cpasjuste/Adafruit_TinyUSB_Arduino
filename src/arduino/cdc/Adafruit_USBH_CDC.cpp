@@ -30,18 +30,34 @@
 
 #include "Adafruit_USBH_CDC.h"
 
-Adafruit_USBH_CDC::Adafruit_USBH_CDC(void) { _idx = TUSB_INDEX_INVALID; }
+Adafruit_USBH_CDC::Adafruit_USBH_CDC(void) { _idx = TUSB_INDEX_INVALID_8; }
 
-void Adafruit_USBH_CDC::begin(uint8_t idx) { _idx = idx; }
+void Adafruit_USBH_CDC::begin(unsigned long baud) {
 
-void Adafruit_USBH_CDC::end(void) { _idx = TUSB_INDEX_INVALID; }
+  // default to index 0 when begin
+  if (_idx == TUSB_INDEX_INVALID_8) {
+    _idx = 0;
+  }
+
+  _baud = baud;
+  if (_baud == 0) {
+    _baud = 115200; // default, backward compatible with previous API begin(0)
+  }
+}
+
+void Adafruit_USBH_CDC::begin(unsigned long baudrate, uint16_t config) {
+  (void)config; // TODO support line coding later
+  begin(baudrate);
+}
+
+void Adafruit_USBH_CDC::end(void) { _idx = TUSB_INDEX_INVALID_8; }
 
 bool Adafruit_USBH_CDC::connected(void) {
-  return (_idx != TUSB_INDEX_INVALID) && tuh_cdc_connected(_idx);
+  return (_idx != TUSB_INDEX_INVALID_8) && tuh_cdc_connected(_idx);
 }
 
 bool Adafruit_USBH_CDC::mounted(void) {
-  return (_idx != TUSB_INDEX_INVALID) && tuh_cdc_mounted(_idx);
+  return (_idx != TUSB_INDEX_INVALID_8) && tuh_cdc_mounted(_idx);
 }
 
 int Adafruit_USBH_CDC::available(void) {
