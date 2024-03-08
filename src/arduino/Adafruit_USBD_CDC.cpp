@@ -26,7 +26,8 @@
 
 #if CFG_TUD_ENABLED && CFG_TUD_CDC && !defined(ARDUINO_ARCH_ESP32)
 
-#include "Arduino.h"
+//#include "Arduino.h"
+#include <api/Interrupts.h>
 
 #include "Adafruit_TinyUSB_API.h"
 
