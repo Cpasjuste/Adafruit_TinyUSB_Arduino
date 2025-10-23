@@ -162,7 +162,7 @@ TU_ATTR_ALWAYS_INLINE static inline bool tud_cdc_connected(void) {
   return tud_cdc_n_connected(0);
 }
 
-TU_ATTR_ALWAYS_INLINE static inline void tud_cdc_set_ignore_dtr(uint8_t* ui8)
+TU_ATTR_ALWAYS_INLINE static inline void tud_cdc_set_ignore_dtr(uint8_t ui8)
 {
   tud_cdc_n_set_ignore_dtr(ui8);
 }
