@@ -45,6 +45,8 @@
 //--------------------------------------------------------------------+
 #define BULK_PACKET_SIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
 
+static uint8_t flag_ignore_dtr = 0;
+
 typedef struct {
   uint8_t rhport;
   uint8_t itf_num;
@@ -170,7 +172,12 @@ bool tud_cdc_n_ready(uint8_t itf) {
 
 bool tud_cdc_n_connected(uint8_t itf) {
   // DTR (bit 0) active  is considered as connected
-  return tud_ready() && tu_bit_test(_cdcd_itf[itf].line_state, 0);
+  return tud_ready() && (tu_bit_test(_cdcd_itf[itf].line_state, 0) || flag_ignore_dtr);
+}
+
+void tud_cdc_n_set_ignore_dtr(uint8_t ui8)
+{
+  flag_ignore_dtr = ui8;
 }
 
 uint8_t tud_cdc_n_get_line_state(uint8_t itf) {
@@ -482,7 +489,7 @@ bool cdcd_control_xfer_cb(uint8_t rhport, uint8_t stage, const tusb_control_requ
 
         // If enabled: fifo overwriting is disabled if DTR bit is set and vice versa
         if (_cdcd_cfg.tx_overwritabe_if_not_connected) {
-          tu_fifo_set_overwritable(&p_cdc->tx_ff, !dtr);
+          if (!flag_ignore_dtr) tu_fifo_set_overwritable(&p_cdc->tx_ff, !dtr);
         } else {
           tu_fifo_set_overwritable(&p_cdc->tx_ff, false);
         }
