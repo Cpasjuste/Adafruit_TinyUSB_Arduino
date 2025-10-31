@@ -111,6 +111,8 @@ bool tud_cdc_n_peek(uint8_t itf, uint8_t* ui8);
 // Set the DTR status ignore flag
 void tud_cdc_n_set_ignore_dtr(uint8_t itf);
 
+void tud_cdc_n_set_rx_buffer_size(uint16_t bufsize);
+
 // Write bytes to TX FIFO, data may remain in the FIFO for a while
 uint32_t tud_cdc_n_write(uint8_t itf, void const* buffer, uint32_t bufsize);
 
@@ -165,6 +167,11 @@ TU_ATTR_ALWAYS_INLINE static inline bool tud_cdc_connected(void) {
 TU_ATTR_ALWAYS_INLINE static inline void tud_cdc_set_ignore_dtr(uint8_t ui8)
 {
   tud_cdc_n_set_ignore_dtr(ui8);
+}
+
+TU_ATTR_ALWAYS_INLINE static inline void tud_cdc_set_rx_buffer_size(uint16_t bufsize)
+{
+  tud_cdc_n_set_rx_buffer_size(bufsize);
 }
 
 TU_ATTR_ALWAYS_INLINE static inline uint8_t tud_cdc_get_line_state(void) {

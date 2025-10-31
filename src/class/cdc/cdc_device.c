@@ -28,6 +28,7 @@
 
 #if (CFG_TUD_ENABLED && CFG_TUD_CDC)
 
+#include <stdlib.h>
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
 
@@ -46,6 +47,7 @@
 #define BULK_PACKET_SIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
 
 static uint8_t flag_ignore_dtr = 0;
+static uint16_t cdc_rx_buffer_size = CFG_TUD_CDC_RX_BUFSIZE;
 
 typedef struct {
   uint8_t rhport;
@@ -64,7 +66,7 @@ typedef struct {
   tu_fifo_t rx_ff;
   tu_fifo_t tx_ff;
 
-  uint8_t rx_ff_buf[CFG_TUD_CDC_RX_BUFSIZE];
+  uint8_t *rx_ff_buf;
   uint8_t tx_ff_buf[CFG_TUD_CDC_TX_BUFSIZE];
 
   OSAL_MUTEX_DEF(rx_ff_mutex);
@@ -178,6 +180,11 @@ bool tud_cdc_n_connected(uint8_t itf) {
 void tud_cdc_n_set_ignore_dtr(uint8_t ui8)
 {
   flag_ignore_dtr = ui8;
+}
+
+void tud_cdc_n_set_rx_buffer_size(uint16_t bufsize)
+{
+  cdc_rx_buffer_size = bufsize;
 }
 
 uint8_t tud_cdc_n_get_line_state(uint8_t itf) {
@@ -322,7 +329,8 @@ void cdcd_init(void) {
     p_cdc->line_coding.data_bits = 8;
 
     // Config RX fifo
-    tu_fifo_config(&p_cdc->rx_ff, p_cdc->rx_ff_buf, TU_ARRAY_SIZE(p_cdc->rx_ff_buf), 1, false);
+    p_cdc->rx_ff_buf = (uint8_t *) malloc(cdc_rx_buffer_size);
+    tu_fifo_config(&p_cdc->rx_ff, p_cdc->rx_ff_buf, cdc_rx_buffer_size, 1, false);
 
     // TX fifo can be configured to change to overwritable if not connected (DTR bit not set). Without DTR we do not
     // know if data is actually polled by terminal. This way the most current data is prioritized.
@@ -355,6 +363,10 @@ bool cdcd_deinit(void) {
     if (mutex_wr) {
       osal_mutex_delete(mutex_wr);
       tu_fifo_config_mutex(&p_cdc->tx_ff, NULL, NULL);
+    }
+
+    if (p_cdc->rx_ff_buf != NULL) {
+      free(p_cdc->rx_ff_buf);
     }
   }
   #endif
